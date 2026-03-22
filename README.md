@@ -13,7 +13,7 @@ The main goal is to compare a batched Torch version against a CPU-based NumPy re
 - `triangle_dist_physx.py`: NumPy triangle-triangle distance calculation based on PhysX-style logic.
 - `triangle_dist_physx_torch.py`: Torch version of the triangle-triangle distance calculation for GPU batched computation.
 
-## How to Install Environement
+## Environment Setup
 ```bash
 conda create --name dist_torch python=3.11
 conda activate dist_torch
