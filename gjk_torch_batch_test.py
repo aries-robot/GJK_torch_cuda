@@ -5,7 +5,6 @@ Batched Minimum Distance Between Convex Meshes with Nesterov GJK of Torch
 Code based on https://github.com/AlexanderFabisch/distance3d
 =============================================================
 """
-print(__doc__)
 
 import math
 
@@ -28,12 +27,10 @@ from distance3d.mesh import make_convex_mesh
 TORCH_DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 TORCH_DTYPE = torch.float64
 BATCH_SIZE = 10000
-N_VERTICES = 16
+N_VERTICES = 32
 EXPECTED_NUM_FACES = 2 * N_VERTICES - 4
 MAX_MESH_RETRIES = 32
 MESH_GEN_SEED = 123
-
-print(f"Using torch device: {TORCH_DEVICE}")
 
 
 def to_numpy(array):
@@ -268,130 +265,136 @@ def set_axes_equal(ax, points):
     ax.set_ylim(center[1] - radius, center[1] + radius)
     ax.set_zlim(center[2] - radius, center[2] + radius)
 
-### Warmup
-collider0_np_batch, collider1_np_batch, collider0_torch_batch, collider1_torch_batch = \
-    generate_random_convex_pairs(2, N_VERTICES, 0)
-contacts_np, distances_np, closest_points0_np, closest_points1_np, simplexes_np, iterations_np = \
-    run_numpy_sequential_batch(collider0_np_batch, collider1_np_batch)
-contacts, distances, closest_points0, closest_points1, simplexes, iterations = \
-    gjk_nesterov_accelerated_distance_and_points_torch(
-        collider0_torch_batch,
-        collider1_torch_batch,
-        use_nesterov_acceleration=True,
+
+if __name__ == "__main__":
+
+    print(f"Using torch device: {TORCH_DEVICE}")
+    print(__doc__)
+
+    ### Warmup for both methods
+    collider0_np_batch, collider1_np_batch, collider0_torch_batch, collider1_torch_batch = \
+        generate_random_convex_pairs(2, N_VERTICES, 0)
+    contacts_np, distances_np, closest_points0_np, closest_points1_np, simplexes_np, iterations_np = \
+        run_numpy_sequential_batch(collider0_np_batch, collider1_np_batch)
+    contacts, distances, closest_points0, closest_points1, simplexes, iterations = \
+        gjk_nesterov_accelerated_distance_and_points_torch(
+            collider0_torch_batch,
+            collider1_torch_batch,
+            use_nesterov_acceleration=True,
+        )
+
+    ### Inference: (1) Generate dataset
+    collider0_np_batch, collider1_np_batch, collider0_torch_batch, collider1_torch_batch = \
+        generate_random_convex_pairs(BATCH_SIZE, N_VERTICES, MESH_GEN_SEED)
+
+    ### Inference: (2) Run numpy sequential batch
+    start_time_np = time.time()
+    contacts_np, distances_np, closest_points0_np, closest_points1_np, simplexes_np, iterations_np = \
+        run_numpy_sequential_batch(collider0_np_batch, collider1_np_batch)
+    elapsed_time_np = time.time() - start_time_np
+
+    ### Inference: (3) Run torch GPU batch
+    start_time_gpu = torch.cuda.Event(enable_timing=True)
+    end_time_gpu = torch.cuda.Event(enable_timing=True)
+    start_time_gpu.record()
+    contacts, distances, closest_points0, closest_points1, simplexes, iterations = \
+        gjk_nesterov_accelerated_distance_and_points_torch(
+            collider0_torch_batch,
+            collider1_torch_batch,
+            use_nesterov_acceleration=True,
+        )
+    end_time_gpu.record()
+    torch.cuda.synchronize()
+    elapsed_time_gpu = start_time_gpu.elapsed_time(end_time_gpu)*1e-3
+
+    assert torch.equal(
+        contacts,
+        torch.as_tensor(contacts_np, dtype=torch.bool, device=TORCH_DEVICE),
+    )
+    assert torch.allclose(
+        distances,
+        torch.as_tensor(distances_np, dtype=TORCH_DTYPE, device=TORCH_DEVICE),
+        atol=1e-6,
+        rtol=1e-6,
+    )
+    assert torch.allclose(
+        closest_points0,
+        torch.as_tensor(closest_points0_np, dtype=TORCH_DTYPE, device=TORCH_DEVICE),
+        atol=1e-6,
+        rtol=1e-6,
+    )
+    assert torch.allclose(
+        closest_points1,
+        torch.as_tensor(closest_points1_np, dtype=TORCH_DTYPE, device=TORCH_DEVICE),
+        atol=1e-6,
+        rtol=1e-6,
+    )
+    expected_simplexes = torch.as_tensor(
+        simplexes_np,
+        dtype=TORCH_DTYPE,
+        device=TORCH_DEVICE,
+    )
+    # The batched GPU support path can pick a different but equivalent support vertex,
+    # so the intermediate simplex is no longer guaranteed to match exactly.
+    assert simplexes.shape == expected_simplexes.shape
+    assert torch.isfinite(simplexes).all()
+    # assert torch.equal(
+    #     iterations,
+    #     torch.as_tensor(iterations_np, dtype=torch.long, device=TORCH_DEVICE),
+    # ) # This is not equal. (why?)
+
+    print(f"contacts shape: {tuple(contacts.shape)}")
+    print(f"distances shape: {tuple(distances.shape)}")
+    print(f"closest_points0 shape: {tuple(closest_points0.shape)}")
+    print(f"closest_points1 shape: {tuple(closest_points1.shape)}")
+    print(f"simplexes shape: {tuple(simplexes.shape)}")
+    print(f"iterations shape: {tuple(iterations.shape)}")
+    print("stacked distances:")
+    print(distances)
+    print("stacked iterations:")
+    print(iterations)
+    print(f"Max abs distance error: {np.max(np.abs(distances.to('cpu').numpy() - distances_np))}")
+    print(f"Elapsed time (numpy sequential): {elapsed_time_np:.6f} seconds")
+    print(f"Elapsed time (GPU): {elapsed_time_gpu:.6f} seconds")
+
+    first_collider0 = collider0_torch_batch.batch_item(0)
+    first_collider1 = collider1_torch_batch.batch_item(0)
+    first_closest_point0 = to_numpy(closest_points0[0])
+    first_closest_point1 = to_numpy(closest_points1[0])
+    first_distance = float(distances[0].item())
+
+    fig = plt.figure(figsize=(9, 7))
+    ax = fig.add_subplot(111, projection="3d")
+
+    world_vertices0 = plot_mesh(ax, first_collider0, color="tab:blue", alpha=0.35)
+    world_vertices1 = plot_mesh(ax, first_collider1, color="tab:orange", alpha=0.35)
+
+    ax.scatter(
+        first_closest_point0[0], first_closest_point0[1], first_closest_point0[2],
+        color="tab:blue", s=80, label="Closest point on mesh 0")
+    ax.scatter(
+        first_closest_point1[0], first_closest_point1[1], first_closest_point1[2],
+        color="tab:orange", s=80, label="Closest point on mesh 1")
+    ax.plot(
+        [first_closest_point0[0], first_closest_point1[0]],
+        [first_closest_point0[1], first_closest_point1[1]],
+        [first_closest_point0[2], first_closest_point1[2]],
+        color="k", linewidth=2.5,
+        label=f"First batch distance = {first_distance:.4f}",
     )
 
-### Inference: (1) Generate dataset
-collider0_np_batch, collider1_np_batch, collider0_torch_batch, collider1_torch_batch = \
-    generate_random_convex_pairs(BATCH_SIZE, N_VERTICES, MESH_GEN_SEED)
+    all_points = np.vstack((
+        world_vertices0,
+        world_vertices1,
+        first_closest_point0[np.newaxis],
+        first_closest_point1[np.newaxis],
+    ))
+    set_axes_equal(ax, all_points)
 
-### Inference: (2) Run numpy sequential batch
-start_time_np = time.time()
-contacts_np, distances_np, closest_points0_np, closest_points1_np, simplexes_np, iterations_np = \
-    run_numpy_sequential_batch(collider0_np_batch, collider1_np_batch)
-elapsed_time_np = time.time() - start_time_np
-
-### Inference: (3) Run torch GPU batch
-start_time_gpu = torch.cuda.Event(enable_timing=True)
-end_time_gpu = torch.cuda.Event(enable_timing=True)
-start_time_gpu.record()
-contacts, distances, closest_points0, closest_points1, simplexes, iterations = \
-    gjk_nesterov_accelerated_distance_and_points_torch(
-        collider0_torch_batch,
-        collider1_torch_batch,
-        use_nesterov_acceleration=True,
-    )
-end_time_gpu.record()
-torch.cuda.synchronize()
-elapsed_time_gpu = start_time_gpu.elapsed_time(end_time_gpu)*1e-3
-
-assert torch.equal(
-    contacts,
-    torch.as_tensor(contacts_np, dtype=torch.bool, device=TORCH_DEVICE),
-)
-assert torch.allclose(
-    distances,
-    torch.as_tensor(distances_np, dtype=TORCH_DTYPE, device=TORCH_DEVICE),
-    atol=1e-6,
-    rtol=1e-6,
-)
-assert torch.allclose(
-    closest_points0,
-    torch.as_tensor(closest_points0_np, dtype=TORCH_DTYPE, device=TORCH_DEVICE),
-    atol=1e-6,
-    rtol=1e-6,
-)
-assert torch.allclose(
-    closest_points1,
-    torch.as_tensor(closest_points1_np, dtype=TORCH_DTYPE, device=TORCH_DEVICE),
-    atol=1e-6,
-    rtol=1e-6,
-)
-expected_simplexes = torch.as_tensor(
-    simplexes_np,
-    dtype=TORCH_DTYPE,
-    device=TORCH_DEVICE,
-)
-# The batched GPU support path can pick a different but equivalent support vertex,
-# so the intermediate simplex is no longer guaranteed to match exactly.
-assert simplexes.shape == expected_simplexes.shape
-assert torch.isfinite(simplexes).all()
-# assert torch.equal(
-#     iterations,
-#     torch.as_tensor(iterations_np, dtype=torch.long, device=TORCH_DEVICE),
-# ) # This is not equal. (why?)
-
-print(f"contacts shape: {tuple(contacts.shape)}")
-print(f"distances shape: {tuple(distances.shape)}")
-print(f"closest_points0 shape: {tuple(closest_points0.shape)}")
-print(f"closest_points1 shape: {tuple(closest_points1.shape)}")
-print(f"simplexes shape: {tuple(simplexes.shape)}")
-print(f"iterations shape: {tuple(iterations.shape)}")
-print("stacked distances:")
-print(distances)
-print("stacked iterations:")
-print(iterations)
-print(f"Max abs distance error: {np.max(np.abs(distances.to('cpu').numpy() - distances_np))}")
-print(f"Elapsed time (numpy sequential): {elapsed_time_np:.6f} seconds")
-print(f"Elapsed time (GPU): {elapsed_time_gpu:.6f} seconds")
-
-first_collider0 = collider0_torch_batch.batch_item(0)
-first_collider1 = collider1_torch_batch.batch_item(0)
-first_closest_point0 = to_numpy(closest_points0[0])
-first_closest_point1 = to_numpy(closest_points1[0])
-first_distance = float(distances[0].item())
-
-fig = plt.figure(figsize=(9, 7))
-ax = fig.add_subplot(111, projection="3d")
-
-world_vertices0 = plot_mesh(ax, first_collider0, color="tab:blue", alpha=0.35)
-world_vertices1 = plot_mesh(ax, first_collider1, color="tab:orange", alpha=0.35)
-
-ax.scatter(
-    first_closest_point0[0], first_closest_point0[1], first_closest_point0[2],
-    color="tab:blue", s=80, label="Closest point on mesh 0")
-ax.scatter(
-    first_closest_point1[0], first_closest_point1[1], first_closest_point1[2],
-    color="tab:orange", s=80, label="Closest point on mesh 1")
-ax.plot(
-    [first_closest_point0[0], first_closest_point1[0]],
-    [first_closest_point0[1], first_closest_point1[1]],
-    [first_closest_point0[2], first_closest_point1[2]],
-    color="k", linewidth=2.5,
-    label=f"First batch distance = {first_distance:.4f}",
-)
-
-all_points = np.vstack((
-    world_vertices0,
-    world_vertices1,
-    first_closest_point0[np.newaxis],
-    first_closest_point1[np.newaxis],
-))
-set_axes_equal(ax, all_points)
-
-ax.set_title("First Pair from Batched _gjk_nesterov_accelerated_torch.py")
-ax.set_xlabel("x")
-ax.set_ylabel("y")
-ax.set_zlabel("z")
-ax.legend(loc="upper left")
-plt.tight_layout()
-plt.show()
+    ax.set_title("First Pair from Batched _gjk_nesterov_accelerated_torch.py")
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    ax.set_zlabel("z")
+    ax.legend(loc="upper left")
+    plt.tight_layout()
+    plt.show()

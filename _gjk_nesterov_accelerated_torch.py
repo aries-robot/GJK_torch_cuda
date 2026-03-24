@@ -931,6 +931,7 @@ def _gjk_nesterov_accelerated_batch(
                     state["finished"][cv_finish_indices] = True
                 step_mask_local &= ~cv_local
 
+        ### Post-projection (region-based) updates
         post_project_indices = active_indices[step_mask_local]
         if post_project_indices.numel() > 0:
             simplex_len_active = state["simplex_len"][post_project_indices]

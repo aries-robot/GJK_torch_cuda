@@ -29,3 +29,17 @@ python gjk_torch_batch_test.py
 ### Minimum distance between 3D triangles using CUDA-accelerated batching in PyTorch
 python triangle_dist_physx_torch.py
 ```
+
+### Results (using i9-10900K, RTX 4090)
+| Benchmark | Configuration | Time |
+|-----------|---------------|------|
+| Convex Polytopes (10k pairs, 32 vertices) | NumPy | 2.1824 sec |
+| | GPU (CUDA) | 0.2009 sec |
+| | Speedup | **10.9x** |
+| Triangles (10k pairs) | NumPy | 1.3287 sec |
+| | GPU (CUDA) | 0.0351 sec |
+| | Speedup | **37.9x** |
+
+### TODO
+- Comparison with FCL or Coal library
+- Implement GPU-based algorithm with C++
