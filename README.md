@@ -30,7 +30,7 @@ python gjk_torch_batch_test.py
 python triangle_dist_physx_torch.py
 ```
 
-### Results (using i9-10900K, RTX 4090)
+## Results (using i9-10900K, RTX 4090)
 | Benchmark | Configuration | Time |
 |-----------|---------------|------|
 | Convex Polytopes (10k pairs, 32 vertices) | NumPy | 2.1824 sec |
@@ -40,6 +40,6 @@ python triangle_dist_physx_torch.py
 | | GPU (CUDA) | 0.0351 sec |
 | | Speedup | **37.9x** |
 
-### TODO
+## TODO
 - Comparison with FCL or Coal library
 - Implement GPU-based algorithm with C++
