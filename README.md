@@ -1,17 +1,17 @@
-# GJK Torch Batch Test
+# GJK PyTorch Batch Test
 <img src="gjk_image.png" alt="GJK visualization" width="400">
 
-This repository is a small experimental workspace for batched minimum-distance queries in a 3D geometric environment using a Torch implementation with GPU acceleration when CUDA is available.
+This repository is a small experimental workspace for batched minimum-distance queries in a 3D geometric environment using a PyTorch implementation with GPU acceleration when CUDA is available.
 
-The main goal is to compare a batched Torch version against a CPU-based NumPy reference implementation and inspect the result.
+The main goal is to compare a batched PyTorch version against a CPU-based NumPy reference implementation and inspect the result.
 
 ## Main Files
 
-- `gjk_torch_batch_test.py`: Main demo and validation script. It generates random convex mesh pairs, runs the NumPy and Torch versions, compares the outputs, prints timing information, and plots the first pair.
-- `_gjk_nesterov_accelerated_torch.py`: Torch-based batched GJK implementation.
+- `gjk_torch_batch_test.py`: Main demo and validation script. It generates random convex mesh pairs, runs the NumPy and PyTorch versions, compares the outputs, prints timing information, and plots the first pair.
+- `_gjk_nesterov_accelerated_torch.py`: PyTorch-based batched GJK implementation.
 - `_gjk_nesterov_accelerated_new.py`: NumPy / Numba reference implementation of the Nesterov-accelerated GJK algorithm (from https://github.com/AlexanderFabisch/distance3d).
 - `triangle_dist_physx.py`: NumPy triangle-triangle distance calculation based on PhysX-style logic.
-- `triangle_dist_physx_torch.py`: Torch version of the triangle-triangle distance calculation for GPU batched computation.
+- `triangle_dist_physx_torch.py`: PyTorch version of the triangle-triangle distance calculation for GPU batched computation.
 
 ## Environment Setup
 ```bash
@@ -34,10 +34,10 @@ python triangle_dist_physx_torch.py
 | Benchmark | Configuration | Time |
 |-----------|---------------|------|
 | Convex Polytopes (10k pairs, 32 vertices) | NumPy | 2.1824 sec |
-| | GPU (CUDA) | 0.2009 sec |
+| | PyTorch (CUDA) | 0.2009 sec |
 | | Speedup | **10.9x** |
 | Triangles (10k pairs) | NumPy | 1.3287 sec |
-| | GPU (CUDA) | 0.0351 sec |
+| | PyTorch (CUDA) | 0.0351 sec |
 | | Speedup | **37.9x** |
 
 ## TODO
